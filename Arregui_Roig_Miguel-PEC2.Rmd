@@ -47,3 +47,183 @@ El objetivo del estudio es la detección de genes que se encuentren sobreexpresa
 
 
 
+```{r envimonmentsetup, warning=FALSE, eval=FALSE}
+workingDir <- getwd()
+dataDir <- file.path(workingDir, "data")
+dir.create(file.path(workingDir, "results"))
+resultsDir <- file.path(workingDir, "results")
+
+```
+
+```{r installpackages}
+
+if(!require(BiocManager))install.packages("BiocManager")
+
+installifnot <- function(pkg){
+  if(!require(pkg, character.only = TRUE)) {
+    BiocManager::install(pkg)
+  }
+}
+
+installifnot("pd.hg.u133.plus.2")
+installifnot("hgu133plus2.db")
+installifnot("oligo")
+installifnot("limma")
+installifnot("Biobase")
+installifnot("arrayQualityMetrics")
+installifnot("genefilter")
+installifnot("annotate")
+installifnot("xtable")
+installifnot("gplots")
+installifnot("GOstats")
+installifnot("GO.db")
+
+```
+
+```{r Targets}
+
+# Leemos los targets
+targetsDF <- read.csv(file = file.path(dataDir, "targets.csv"), header = TRUE,
+                      sep = ";")
+# Definimos variables para realizar gráficos
+sampleName <- as.character(targetsDF$ShortName)
+sampleColor <- as.character(targetsDF$Colors)
+
+# Creamos un AnnotataedDataFrame
+targets <- AnnotatedDataFrame(targetsDF)
+```
+
+```{r CELarchivesRead}
+CELfiles <- targetsDF$FileName
+rawData <- read.celfiles(file.path(dataDir, CELfiles), phenoData = targets)
+rawData
+
+```
+
+```{r dataexploring&qualitycontrol}
+library(arrayQualityMetrics)
+arrayQualityMetrics(rawData, outdir = file.path(resultsDir, "QCDir.Raw"), 
+                    force = TRUE)
+
+```
+
+```{r boxplot}
+# boxplot
+boxplot(rawData, which = "all", las = 2, 
+        main = "Intensity distribution of raw Data", cel.axis = 0.6,
+        col = sampleColor, names = sampleName)
+
+```
+
+```{r hierarquicalclustering}
+# hierarquical clustering
+clust.euclid.average <- hclust(dist(t(exprs(rawData))), method = "average")
+plot(clust.euclid.average, labels = sampleName, 
+     main = "Hierarquical clustering of RawData", cex = 0.7, hang = -1)
+
+```
+
+```{r pcaAnalisys}
+plotPCA <- function(X, labels = NULL, colors = NULL, dataDesc = "", scale = FALSE, formapunts = NULL, myCex = 0.8, ...) {
+  pcX <- prcomp(t(X))
+  loads <- round(pcX$sdev^2/sum(pcX$sdev^2) * 100, 1)
+  xlab <- c(paste("PC1", loads[1], "%"))
+  ylab <- c(paste("PC2", loads[2], "%"))
+  if (is.null(colors))
+      colors = 1
+  plot(pcX$x[, 1:2], xlab = xlab, ylab = ylab, col = colors, pch = formapunts, 
+       xlim = c(min(pcX$x[, 1]) - 1e+05, max(pcX$x[, 1]) + 1e+05), 
+       ylim = c(min(pcX$x[, 2]) - 1e+05, max(pcX$x[, 2]) + 1e+05))
+  text(pcX$x[, 1], pcX$x[, 2], labels, pos = 3, cex = myCex)
+  title(paste("Plot of the first 2 PCA for expressions in", dataDesc,
+                   sep = " "), cex = 0.8)
+}
+
+plotPCA(exprs(rawData), labels = sampleName, dataDesc = "raw data", 
+        colors = sampleColor, formapunts = c(16, 17, 16, 17, 16, 17), myCex = 0.6)
+
+```
+
+```{r saveplotstopdf}
+pdf(file.path(resultsDir, "QCPlots_rawdata.pdf"))
+boxplot(rawData, which = "all", las = 2, 
+        main = "Intensity distribution of raw Data", cel.axis = 0.6,
+        col = sampleColor, names = sampleName)
+plot(clust.euclid.average, labels = sampleName, 
+     main = "Hierarquical clustering of RawData", cex = 0.7, hang = -1)
+plotPCA(exprs(rawData), labels = sampleName, dataDesc = "raw data", 
+        colors = sampleColor, formapunts = c(16, 17, 16, 17, 16, 17), myCex = 0.6)
+dev.off()
+```
+
+
+```{r datanormalization}
+# normalización de los datos con lel metodo RMA
+eset_rma <- rma(rawData)
+
+```
+
+```{r writeNormData}
+write.exprs(eset_rma, file.path(resultsDir, "NormalizedData.txt"))
+write.csv(exprs(eset_rma), file.path(resultsDir, "NormalizedData.csv"))
+eset_rma
+
+```
+
+```{r normalizedDataQualityControl}
+arrayQualityMetrics(eset_rma, outdir = file.path(resultsDir, "QCDir.Norm"), 
+                    force = TRUE)
+
+```
+```{r boxplotNormalizedData}
+boxplot(eset_rma, which = "all", las = 2, 
+        main = "Intensity distribution of Normalized Data", cel.axis = 0.6,
+        col = sampleColor, names = sampleName)
+
+```
+
+```{r hierarquicalClusteringNormalizedData}
+norm.clust.euclid.average <- hclust(dist(t(exprs(eset_rma))), method = "average")
+plot(norm.clust.euclid.average, labels = sampleName, 
+     main = "Hierarquical clustering of Normalized Data", cex = 0.7, hang = -1)
+```
+
+```{r PCANormalizedData}
+plotPCA(exprs(eset_rma), labels = sampleName, dataDesc = "Normalized Data", 
+        colors = sampleColor, formapunts = c(16, 17, 16, 17, 16, 17), myCex = 0.6)
+
+
+```
+
+
+```{r saveplotstopdf}
+pdf(file.path(resultsDir, "QCPlots_normdata.pdf"))
+boxplot(eset_rma, which = "all", las = 2, 
+        main = "Intensity distribution of Normalized Data", cel.axis = 0.6,
+        col = sampleColor, names = sampleName)
+plot(norm.clust.euclid.average, labels = sampleName, 
+     main = "Hierarquical clustering of Normalized Data", cex = 0.7, hang = -1)
+plotPCA(exprs(eset_rma), labels = sampleName, dataDesc = "Normalized Data", 
+        colors = sampleColor, formapunts = c(16, 17, 16, 17, 16, 17), myCex = 0.6)
+dev.off()
+```
+
+
+```{r geneFiltering} 
+library(genefilter)
+library(hgu133a.db)
+annotation(eset_rma) <- "hgu133plus2.db"
+filtered <- nsFilter(eset_rma, require.entrez = TRUE, remove.dupEntrez = TRUE,
+                     var.filter = TRUE, var.func = IQR, var.cutoff = 0.75,
+                     filteredByQuantile = TRUE)
+
+print(filtered$filter.log)
+```
+
+
+```{r filteredData}
+eset_filtered <- filtered$eset
+write.csv(exprs(eset_filtered), file.path(resultsDir, "normalized.filtered.csv"))
+
+```
+
